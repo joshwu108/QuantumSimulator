@@ -26,6 +26,31 @@ python main.py examples/bell_state.qasm --shots 1000 --noise amplitude_damping -
 python main.py examples/bell_state.qasm --shots 1000 --plot
 ```
 
+### Visualization API
+
+The plotting helpers live in `simulator.visualization` and return Matplotlib
+figure/axes objects so they are easy to save into a report or slide deck.
+
+```python
+from simulator import (
+    plot_bloch_from_state,
+    plot_counts,
+    plot_probabilities,
+)
+
+fig, ax = plot_counts(counts)
+fig.savefig("counts.png", dpi=200, bbox_inches="tight")
+
+fig, ax = plot_probabilities(result.statevector)
+fig.savefig("probabilities.png", dpi=200, bbox_inches="tight")
+
+fig, ax = plot_bloch_from_state(result.statevector, qubit=0)
+fig.savefig("bloch.png", dpi=200, bbox_inches="tight")
+```
+
+For a complete demo that saves presentation-ready images, see
+`examples/visualization_demo.py`.
+
 ## Output
 
 1. **Statevector**: The quantum state immediately before measurement, displayed as a vector of complex amplitudes
@@ -80,11 +105,9 @@ Counts (1000 shots):
 |--------|---------------|
 | `simulator/parser.py` | Tokenize and parse QASM into Circuit IR |
 | `simulator/circuit.py` | Gate and Circuit dataclasses |
-| `simulator/gates.py` | Gate matrix definitions (H, X, Y, Z, CNOT, etc.) |
-| `simulator/statevector.py` | Noiseless simulation engine |
-| `simulator/density_matrix.py` | Noisy simulation via Kraus operators |
+| `simulator/engine.py` | Statevector and density-matrix simulation engines |
 | `simulator/noise.py` | Depolarizing and amplitude damping channel definitions |
-| `simulator/visualizer.py` | Histogram and Bloch sphere plotting |
+| `simulator/visualization.py` | Histogram, probability, and Bloch-sphere plotting |
 | `main.py` | CLI entry point and argument parsing |
 
 ## Design Decisions
