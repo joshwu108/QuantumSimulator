@@ -8,25 +8,17 @@ Processing strategy:
 2. Concatenate multi-line statements (split on semicolons)
 3. Classify each statement by regex match
 4. Build Circuit incrementally
-
-This approach is chosen over a parser library (like PLY or lark) because:
-- OpenQASM 2.0 syntax is simple and line-oriented
-- A hand-written parser is easier to debug and explain in a report
-- No external parsing dependencies needed
 """
 
 from __future__ import annotations
-
 import math
 import re
 from pathlib import Path
-
 from simulator.circuit import Circuit, Gate, Measurement, GATE_PARAM_COUNTS
 
 
 class QASMParseError(Exception):
     """Raised when QASM input is malformed."""
-
     def __init__(self, message: str, line_number: int | None = None) -> None:
         self.line_number = line_number
         prefix = f"Line {line_number}: " if line_number is not None else ""
@@ -69,7 +61,6 @@ def parse_qasm(source: str) -> Circuit:
 
 def _tokenize(source: str) -> list[tuple[str, int]]:
     """Split source into (statement, line_number) pairs.
-
     Handles:
     - Single-line comments (//)
     - Multi-statement lines (a; b;)
