@@ -1,15 +1,7 @@
 """Internal circuit representation.
-
-Design choices:
-- Gate stores the gate name, target qubit indices, and any rotation parameters.
-- Measurement maps a qubit index to a classical bit index.
-- Circuit holds the full parsed result: qubit/clbit counts, gate list, and measurements.
-- All qubit indices are absolute (already resolved from register declarations).
-- Parameters are stored as floats (already evaluated from expressions like pi/2).
 """
 
 from __future__ import annotations
-
 from dataclasses import dataclass, field
 
 
@@ -46,7 +38,6 @@ class Measurement:
         qubit: Index of the qubit to measure.
         clbit: Index of the classical bit to store the result.
     """
-
     qubit: int
     clbit: int
 
