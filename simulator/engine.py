@@ -1,4 +1,4 @@
-"""Noiseless statevector quantum circuit simulator.
+"""Statevector and density matrix quantum circuit simulators.
 
 Qubit ordering convention (little-endian / Qiskit-compatible):
   - Statevector index i encodes qubit k's state as bit k of i:
@@ -35,6 +35,7 @@ from typing import Optional
 import numpy as np
 
 from simulator.circuit import Circuit, Gate
+from simulator.noise import NoiseModel
 
 
 # ---------------------------------------------------------------------------
@@ -393,3 +394,311 @@ class StatevectorSimulator:
         # All remaining supported gates are single-qubit
         matrix = _gate_matrix(gate)
         return apply_single_qubit_gate(sv, matrix, gate.qubits[0], self.n)
+
+
+# ---------------------------------------------------------------------------
+# Density matrix helpers
+# ---------------------------------------------------------------------------
+
+def apply_op_to_dm(
+    rho: np.ndarray,
+    M: np.ndarray,
+    qubit: int,
+    n: int,
+) -> np.ndarray:
+    """Apply operator M to qubit in density matrix: returns M_q ρ M_q†.
+
+    M_q denotes M ⊗ I ⊗ ... ⊗ I with M acting only on `qubit`.
+
+    Algorithm (tensor contraction — no 4^n operator ever built):
+      1. Reshape ρ from (2^n, 2^n) to (2, 2, ..., 2) with 2n axes.
+         In C-order: row indices are axes 0..n-1 (MSB first), so qubit q
+         corresponds to row axis (n-1-q) and col axis (2n-1-q).
+      2. Left-multiply by M on the row axis for qubit q:
+           tensordot(M, ρ_tensor, axes=([1], [row_axis])) then moveaxis.
+      3. Right-multiply by M† on the col axis for qubit q:
+           tensordot(ρ_tensor, M†, axes=([col_axis], [0])) then moveaxis.
+      4. Reshape back to (2^n, 2^n).
+
+    Complexity: O(4^n) time and space — same order as the density matrix itself.
+
+    Args:
+        rho:   Density matrix of shape (2^n, 2^n).
+        M:     2×2 complex operator matrix.
+        qubit: Target qubit index (0 = LSB, little-endian convention).
+        n:     Total number of qubits.
+
+    Returns:
+        New density matrix of shape (2^n, 2^n).
+    """
+    dim = 2 ** n
+    rho_t = rho.reshape([2] * (2 * n))
+
+    # In C-order reshape: qubit q → row axis (n-1-q), col axis (2n-1-q)
+    row_axis = n - 1 - qubit
+    col_axis = 2 * n - 1 - qubit
+
+    # Left: rho_t' = M @ rho_t  along row_axis
+    # tensordot(M, rho_t, axes=([1], [row_axis])) contracts M's "in" index (axis 1)
+    # with rho_t's row_axis.  New M output axis lands at position 0; move it back.
+    rho_t = np.tensordot(M, rho_t, axes=([1], [row_axis]))
+    rho_t = np.moveaxis(rho_t, 0, row_axis)
+
+    # Right: rho_t' = rho_t @ M†  along col_axis
+    # tensordot(rho_t, M†, axes=([col_axis], [0])) contracts rho_t's col_axis with
+    # M†'s "in" index (axis 0).  New M† output axis is appended at the end; move back.
+    M_dag = M.conj().T
+    rho_t = np.tensordot(rho_t, M_dag, axes=([col_axis], [0]))
+    rho_t = np.moveaxis(rho_t, -1, col_axis)
+
+    return rho_t.reshape(dim, dim)
+
+
+def apply_kraus_to_dm(
+    rho: np.ndarray,
+    kraus_ops: list[np.ndarray],
+    qubit: int,
+    n: int,
+) -> np.ndarray:
+    """Apply a Kraus noise channel to qubit in density matrix.
+
+    Computes E(ρ) = Σ_i K_i ρ K_i†  where {K_i} are the Kraus operators.
+
+    Args:
+        rho:       Density matrix of shape (2^n, 2^n).
+        kraus_ops: List of 2×2 Kraus operator matrices satisfying Σ K_i† K_i = I.
+        qubit:     Target qubit index.
+        n:         Total number of qubits.
+
+    Returns:
+        New density matrix after applying the noise channel.
+    """
+    rho_new = np.zeros_like(rho)
+    for K in kraus_ops:
+        rho_new = rho_new + apply_op_to_dm(rho, K, qubit, n)
+    return rho_new
+
+
+# ---------------------------------------------------------------------------
+# Density matrix simulation result
+# ---------------------------------------------------------------------------
+
+@dataclass
+class DensityMatrixResult:
+    """Result of a density matrix simulation.
+
+    Attributes:
+        density_matrix: Final density matrix ρ of shape (2^n, 2^n).
+        circuit:        The simulated circuit (needed for measurement map).
+
+    Representation vs. StatevectorSimulator:
+      - Memory: O(4^n) vs O(2^n)  — density matrix is 2^n times larger.
+      - Probabilities: P(i) = ρ[i,i]  vs P(i) = |sv[i]|²  (same numerically
+        for pure states).
+      - Handles mixed states; StatevectorSimulator cannot represent noise.
+    """
+
+    density_matrix: np.ndarray
+    circuit: Circuit
+
+    @property
+    def probabilities(self) -> np.ndarray:
+        """Born-rule probabilities from the diagonal of the density matrix.
+
+        P(i) = ⟨i|ρ|i⟩ = ρ[i, i]
+
+        For a pure state ρ = |ψ⟩⟨ψ| this equals |ψ[i]|², matching
+        StatevectorSimulator.  For mixed states this gives the correct
+        classical mixture probabilities.
+        """
+        return np.real(np.diag(self.density_matrix))
+
+    def get_counts(self, shots: int, seed: Optional[int] = None) -> dict[str, int]:
+        """Sample the density matrix probability distribution to produce counts.
+
+        Identical sampling logic to SimulationResult.get_counts — both draw
+        shot samples from the marginal probability vector P(i) = ρ[i,i].
+
+        Args:
+            shots: Number of measurement shots.
+            seed:  Optional integer seed for reproducibility.
+
+        Returns:
+            Dict mapping bitstrings (length num_clbits) to shot counts.
+        """
+        rng = np.random.default_rng(seed)
+        probs = self.probabilities
+        probs = probs / probs.sum()  # renormalize against floating-point drift
+
+        num_clbits = self.circuit.num_clbits
+        meas_map: dict[int, int] = {m.qubit: m.clbit for m in self.circuit.measurements}
+
+        sampled_indices = rng.choice(len(probs), size=shots, p=probs)
+
+        counts: dict[str, int] = {}
+        for idx in sampled_indices:
+            clbits = [0] * num_clbits
+            for qubit, clbit in meas_map.items():
+                clbits[clbit] = (int(idx) >> qubit) & 1
+            key = "".join(str(clbits[i]) for i in range(num_clbits - 1, -1, -1))
+            counts[key] = counts.get(key, 0) + 1
+
+        return counts
+
+
+# ---------------------------------------------------------------------------
+# Density matrix simulator
+# ---------------------------------------------------------------------------
+
+class DensityMatrixSimulator:
+    """Noisy quantum circuit simulator using the density matrix formalism.
+
+    State representation
+    --------------------
+    A Hermitian positive-semidefinite matrix ρ ∈ ℂ^{2^n × 2^n} with Tr(ρ)=1.
+    Initialised to the pure ground state |0...0⟩⟨0...0|.
+
+    Gate application
+    ----------------
+    For each gate U:  ρ ← U_q ρ U_q†  (tensor contraction, O(4^n) per gate).
+
+    Noise application (after each gate)
+    ------------------------------------
+    For each Kraus operator K_i in the channel for that gate/qubit:
+        ρ ← Σ_i K_i ρ K_i†  (O(4^n) per Kraus operator)
+
+    Runtime cost vs. StatevectorSimulator
+    --------------------------------------
+    Memory:   O(4^n) vs O(2^n)   — 2^n times more memory.
+    Per gate: O(4^n) vs O(2^n)   — 2^n times more work per gate.
+    Practical limit: ~12-15 qubits (vs ~30 for statevector).
+
+    This is the recommended approach for a student project because:
+      - The math is fully deterministic: same circuit → same ρ.
+      - Kraus operators make the physics transparent.
+      - No per-shot randomness complicates debugging.
+
+    Switching between modes
+    -----------------------
+    # Noiseless:
+    sim = DensityMatrixSimulator(circuit)
+
+    # Depolarizing after every gate:
+    from simulator.noise import NoiseModel, DepolarizingChannel
+    nm = NoiseModel()
+    nm.add_all_gates_noise(DepolarizingChannel(p=0.01))
+    sim = DensityMatrixSimulator(circuit, noise_model=nm)
+
+    # Amplitude damping only after specific gate:
+    nm = NoiseModel()
+    nm.add_gate_noise("cx", qubit=0, channel=AmplitudeDampingChannel(gamma=0.05))
+    sim = DensityMatrixSimulator(circuit, noise_model=nm)
+    """
+
+    def __init__(
+        self,
+        circuit: Circuit,
+        noise_model: Optional[NoiseModel] = None,
+    ) -> None:
+        self.circuit = circuit
+        self.n = circuit.num_qubits
+        self.noise_model = noise_model
+
+    def run(self) -> DensityMatrixResult:
+        """Execute the circuit, optionally applying noise after each gate.
+
+        Returns:
+            DensityMatrixResult with the final density matrix and circuit.
+        """
+        rho = self._initialize_dm()
+        for gate in self.circuit.gates:
+            rho = self._apply_gate_dm(rho, gate)
+        return DensityMatrixResult(density_matrix=rho, circuit=self.circuit)
+
+    # ------------------------------------------------------------------
+    # Private methods
+    # ------------------------------------------------------------------
+
+    def _initialize_dm(self) -> np.ndarray:
+        """Return ρ = |0...0⟩⟨0...0|: only ρ[0,0] = 1, all others 0."""
+        dim = 2 ** self.n
+        rho = np.zeros((dim, dim), dtype=complex)
+        rho[0, 0] = 1.0
+        return rho
+
+    def _apply_gate_dm(self, rho: np.ndarray, gate: Gate) -> np.ndarray:
+        """Apply gate unitary then optional noise to density matrix."""
+        rho = self._apply_unitary_dm(rho, gate)
+        if self.noise_model is not None:
+            rho = self._apply_noise_dm(rho, gate)
+        return rho
+
+    def _apply_unitary_dm(self, rho: np.ndarray, gate: Gate) -> np.ndarray:
+        """Apply the gate's unitary U: ρ ← U_full ρ U_full†."""
+        if gate.name == "cx":
+            ctrl, target = gate.qubits
+            U = _build_two_qubit_unitary(ctrl, target, _X, self.n)
+            return U @ rho @ U.conj().T
+        if gate.name == "cz":
+            ctrl, target = gate.qubits
+            U = _build_two_qubit_unitary(ctrl, target, _Z, self.n)
+            return U @ rho @ U.conj().T
+        # Single-qubit gate
+        matrix = _gate_matrix(gate)
+        return apply_op_to_dm(rho, matrix, gate.qubits[0], self.n)
+
+    def _apply_noise_dm(self, rho: np.ndarray, gate: Gate) -> np.ndarray:
+        """Apply registered noise channels to each qubit the gate acts on."""
+        for qubit in gate.qubits:
+            channels = self.noise_model.get_channels_for_gate(gate.name, qubit)
+            for channel in channels:
+                rho = apply_kraus_to_dm(rho, channel.kraus_operators(), qubit, self.n)
+        return rho
+
+
+# ---------------------------------------------------------------------------
+# Two-qubit unitary builder (for controlled gates in DM simulator)
+# ---------------------------------------------------------------------------
+
+def _build_two_qubit_unitary(
+    ctrl: int, target: int, gate_2x2: np.ndarray, n: int
+) -> np.ndarray:
+    """Build the 2^n × 2^n unitary for a controlled single-qubit gate.
+
+    For each basis state |i⟩:
+      - If ctrl qubit of i is 0: output = i  (identity on target)
+      - If ctrl qubit of i is 1: output = i with target bit flipped through gate_2x2
+
+    For CX: gate_2x2 = X  → |ctrl=1, target⟩ → |ctrl=1, X·target⟩
+    For CZ: gate_2x2 = Z  → phase flip on |11⟩ component
+
+    Args:
+        ctrl:      Control qubit index.
+        target:    Target qubit index.
+        gate_2x2:  2×2 unitary applied to target when ctrl=|1⟩.
+        n:         Total number of qubits.
+
+    Returns:
+        (2^n, 2^n) unitary matrix.
+    """
+    dim = 2 ** n
+    U = np.zeros((dim, dim), dtype=complex)
+
+    for j in range(dim):  # input basis state
+        ctrl_val = (j >> ctrl) & 1
+        if ctrl_val == 0:
+            # ctrl=0: identity on whole system
+            U[j, j] += 1.0
+        else:
+            # ctrl=1: apply gate_2x2 to target qubit
+            target_val = (j >> target) & 1
+            for out_t in range(2):
+                # gate_2x2[out_t, target_val] is the amplitude for target → out_t
+                amp = gate_2x2[out_t, target_val]
+                if amp == 0:
+                    continue
+                # Build output index: same as j but with target bit = out_t
+                i = (j & ~(1 << target)) | (out_t << target)
+                U[i, j] += amp
+
+    return U
