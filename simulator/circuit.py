@@ -10,10 +10,9 @@ class Gate:
     """A quantum gate applied to specific qubits.
 
     Attributes:
-        name: Gate identifier (e.g. "h", "cx", "rx").
-        qubits: Ordered list of qubit indices this gate acts on.
-                 For controlled gates, control qubits come first.
-        params: Rotation parameters in radians (empty for non-parametric gates).
+        name: Gate identifier
+        qubits: Ordered list of qubit indices this gate acts on
+        params: Rotation parameters in radians
     """
 
     name: str
