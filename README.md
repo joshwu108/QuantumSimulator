@@ -10,16 +10,34 @@ A Python-based quantum computer simulator that reads OpenQASM 2.0 circuits and p
 - **Measurement Sampling**: Simulates repeated measurements with configurable shot count
 - **Visualization**: Measurement histograms and Bloch sphere plots
 - **Interactive Frontend**: Streamlit workbench for live circuit editing and results
+- **CLI Runner**: Run a `.qasm` file directly with shots and optional noise
 
 ## Usage
 
+Install dependencies first:
+
 ```bash
-# Launch the interactive frontend
+python -m pip install -r requirements.txt
+```
+
+From the repository root, there are two main ways to use the simulator:
+
+- the CLI, which is best for running a `.qasm` file directly
+- the Streamlit app, which is best for live demos and interactive exploration
+
+### Quick Start
+
+```bash
 source venv/bin/activate
+
+# Run a QASM file from the CLI
+python run_qasm.py examples/bell_state.qasm --shots 1024
+
+# Launch the interactive Streamlit app
 streamlit run streamlit_app.py
 
-# Save example figures for a report or presentation
-PYTHONPATH=. python examples/visualization_demo.py
+# Save plots from the CLI
+python run_qasm.py examples/bell_state.qasm --shots 1024 --save-plots demo_plots
 ```
 
 ### Streamlit Workbench
@@ -27,12 +45,13 @@ PYTHONPATH=. python examples/visualization_demo.py
 The Streamlit frontend gives you a live circuit editor that feels much closer
 to a small quantum composer:
 
+- upload a local `.qasm` file
+- paste OpenQASM text directly
 - change the number of qubits
 - add or remove gates in a live operation table
 - switch between noiseless and noisy simulation
-- inspect measurement counts, basis-state probabilities, Bloch spheres, and
-  generated OpenQASM
-- import an OpenQASM circuit into the editor
+- inspect measurement counts, basis-state probabilities, Bloch spheres, the
+  full pre-measurement state, and generated OpenQASM
 
 Run it from the repository root:
 
@@ -41,11 +60,81 @@ source venv/bin/activate
 streamlit run streamlit_app.py
 ```
 
+How to use the Streamlit app:
+
+1. Open the app in your browser after running the command.
+2. Load a preset circuit, upload a `.qasm` file, or paste OpenQASM text.
+3. Choose the number of qubits and the number of measurement shots.
+4. Optionally enable `depolarizing` or `amplitude_damping` noise.
+5. Inspect the counts plot, probability plot, Bloch sphere, and full pre-measurement state.
+6. Download the generated QASM if you want to export the edited circuit.
+
 If you want the app to import the local `simulator` package explicitly:
 
 ```bash
 source venv/bin/activate
 PYTHONPATH=. streamlit run streamlit_app.py
+```
+
+### CLI Runner
+
+If you want a direct assignment-ready command, use `run_qasm.py`. The CLI
+takes a `.qasm` file and a shot count, runs the circuit, prints the
+pre-measurement state, and prints the measurement counts.
+
+Basic usage:
+
+```bash
+source venv/bin/activate
+python run_qasm.py examples/bell_state.qasm --shots 1024
+```
+
+This prints:
+
+- the QASM filename
+- the simulation mode
+- the pre-measurement statevector or density matrix
+- the counts dictionary
+
+Noisy with depolarizing noise:
+
+```bash
+source venv/bin/activate
+python run_qasm.py examples/bell_state.qasm --shots 1024 --noise depolarizing --param 0.02
+```
+
+Noisy with amplitude damping:
+
+```bash
+source venv/bin/activate
+python run_qasm.py examples/bell_state.qasm --shots 1024 --noise amplitude_damping --param 0.05
+```
+
+Save visualization files from the CLI:
+
+```bash
+source venv/bin/activate
+python run_qasm.py examples/bell_state.qasm --shots 1024 --save-plots demo_plots
+```
+
+That command saves:
+
+- `demo_plots/counts.png`
+- `demo_plots/probabilities.png`
+- `demo_plots/bloch_q0.png`
+
+To save the Bloch sphere for a different qubit:
+
+```bash
+source venv/bin/activate
+python run_qasm.py examples/ghz_state.qasm --shots 1024 --save-plots demo_plots --bloch-qubit 1
+```
+
+If Matplotlib complains about its cache directory:
+
+```bash
+source venv/bin/activate
+MPLCONFIGDIR=/tmp/matplotlib python run_qasm.py examples/bell_state.qasm --shots 1024 --save-plots demo_plots
 ```
 
 ### Visualization API
@@ -131,6 +220,7 @@ Counts (1000 shots):
 | `simulator/noise.py` | Depolarizing and amplitude damping channel definitions |
 | `simulator/visualization.py` | Histogram, probability, and Bloch-sphere plotting |
 | `simulator/workbench.py` | Frontend-facing circuit editing, simulation, and rendering helpers |
+| `run_qasm.py` | Terminal entry point for running `.qasm` files directly |
 | `streamlit_app.py` | Interactive Streamlit frontend |
 
 ## Design Decisions
@@ -160,7 +250,9 @@ Noise is applied as a quantum channel after each gate using Kraus operator repre
 ```
 QuantumSimulator/
 ├── README.md
+├── script.md
 ├── requirements.txt
+├── run_qasm.py
 ├── streamlit_app.py
 ├── .streamlit/
 │   └── config.toml

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import sys
+
+import numpy as np
 import pandas as pd
 import streamlit as st
 
-from simulator.engine import SimulationResult
+from simulator.engine import DensityMatrixResult, SimulationResult
 from simulator.parser import QASMParseError
 from simulator.visualization import (
     plot_bloch_from_state,
@@ -30,7 +33,7 @@ from simulator.workbench import (
 
 
 st.set_page_config(
-    page_title="Quantum Workbench",
+    page_title="Quantum Simulator",
     page_icon="Q",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -38,91 +41,56 @@ st.set_page_config(
 
 
 def inject_styles() -> None:
-    """Apply a readable dark UI with a lab-console feel."""
+    """Apply a quiet, readable dark theme."""
     st.markdown(
         """
         <style>
         .stApp {
-            background:
-                radial-gradient(circle at top left, rgba(104, 208, 198, 0.16), transparent 28%),
-                radial-gradient(circle at top right, rgba(255, 107, 107, 0.12), transparent 22%),
-                linear-gradient(180deg, #071017 0%, #09131d 42%, #0b141d 100%);
-            color: #f5fbff;
+            background: #0b131a;
+            color: #f3f7fb;
         }
         .block-container {
-            padding-top: 1.4rem;
+            max-width: 1460px;
+            padding-top: 1.15rem;
             padding-bottom: 2rem;
-            max-width: 1580px;
         }
         [data-testid="stSidebar"] {
-            background:
-                linear-gradient(180deg, rgba(12, 25, 36, 0.98) 0%, rgba(9, 18, 28, 0.98) 100%);
-            border-right: 1px solid rgba(148, 178, 196, 0.18);
-        }
-        h1, h2, h3 {
-            font-family: "Trebuchet MS", "Avenir Next", "Gill Sans", sans-serif;
-            letter-spacing: 0.02em;
+            background: #101922;
+            border-right: 1px solid rgba(148, 178, 196, 0.14);
         }
         html, body, [class*="css"], [data-testid="stSidebar"] * {
             font-family: Verdana, Geneva, sans-serif;
         }
+        h1, h2, h3 {
+            color: #f4f8fb;
+            letter-spacing: 0.01em;
+        }
+        p, li, .stCaption, label {
+            color: #c4d2dd;
+        }
         div[data-testid="stMetric"] {
-            background: rgba(10, 20, 31, 0.72);
-            border: 1px solid rgba(148, 178, 196, 0.22);
-            border-radius: 18px;
-            padding: 0.75rem 0.95rem;
+            background: rgba(14, 22, 30, 0.88);
+            border: 1px solid rgba(148, 178, 196, 0.15);
+            border-radius: 12px;
+            padding: 0.7rem 0.9rem;
         }
         div[data-testid="stCodeBlock"] pre {
-            border-radius: 18px;
+            border-radius: 12px;
+            border: 1px solid rgba(148, 178, 196, 0.10);
         }
-        .quantum-hero {
-            padding: 1.15rem 1.4rem 1.3rem;
-            border-radius: 28px;
-            background:
-                linear-gradient(135deg, rgba(13, 28, 40, 0.95), rgba(10, 20, 29, 0.9)),
-                linear-gradient(135deg, rgba(104, 208, 198, 0.10), transparent);
-            border: 1px solid rgba(148, 178, 196, 0.24);
-            box-shadow: 0 22px 60px rgba(0, 0, 0, 0.22);
-            margin-bottom: 1rem;
+        div[data-testid="stDataFrame"] div[role="table"] {
+            border: 1px solid rgba(148, 178, 196, 0.10);
+            border-radius: 12px;
         }
-        .quantum-kicker {
-            display: inline-block;
-            margin-bottom: 0.7rem;
-            padding: 0.28rem 0.62rem;
-            border-radius: 999px;
-            background: rgba(104, 208, 198, 0.14);
-            color: #9ce9df;
-            font-size: 0.74rem;
-            text-transform: uppercase;
-            letter-spacing: 0.12em;
-            font-weight: 700;
+        button {
+            border-radius: 10px !important;
         }
-        .quantum-title {
-            margin: 0;
-            font-size: 2.2rem;
-            line-height: 1.05;
-            color: #f7fbff;
-        }
-        .quantum-subtitle {
-            margin: 0.45rem 0 0;
-            max-width: 70ch;
-            color: #b8c9d6;
-            line-height: 1.55;
-            font-size: 0.98rem;
-        }
-        .quantum-note {
-            padding: 0.85rem 1rem;
-            border-radius: 18px;
-            background: rgba(12, 22, 32, 0.72);
-            border: 1px solid rgba(148, 178, 196, 0.18);
-            color: #c9d7e2;
-        }
-        .quantum-label {
-            color: #9cb4c4;
-            font-size: 0.78rem;
-            text-transform: uppercase;
-            letter-spacing: 0.11em;
-            margin-bottom: 0.2rem;
+        .tool-summary {
+            padding: 0.9rem 1rem;
+            border-radius: 14px;
+            background: rgba(13, 20, 27, 0.82);
+            border: 1px solid rgba(148, 178, 196, 0.12);
+            margin-bottom: 0.9rem;
         }
         </style>
         """,
@@ -144,13 +112,14 @@ def initialize_state() -> None:
     st.session_state.workbench_noise_mode = "none"
     st.session_state.workbench_noise_strength = 0.08
     st.session_state.workbench_bloch_qubit = 0
+    st.session_state.workbench_source_name = "Bell State preset"
     st.session_state.workbench_import_source = (
         "OPENQASM 2.0;\n"
         'include "qelib1.inc";\n'
         "qreg q[2];\n"
         "creg c[2];\n"
         "h q[0];\n"
-        "cx q[0],q[1];\n"
+        "cx q[0], q[1];\n"
         "measure q[0] -> c[0];\n"
         "measure q[1] -> c[1];\n"
     )
@@ -172,7 +141,15 @@ def rows_to_dataframe(rows: list[OperationRow]) -> pd.DataFrame:
     ]
     return pd.DataFrame(
         records,
-        columns=["enabled", "gate", "target", "control", "param_1", "param_2", "param_3"],
+        columns=[
+            "enabled",
+            "gate",
+            "target",
+            "control",
+            "param_1",
+            "param_2",
+            "param_3",
+        ],
     )
 
 
@@ -183,7 +160,11 @@ def dataframe_to_rows(frame: pd.DataFrame) -> list[OperationRow]:
         gate = str(record.get("gate", "h") or "h").strip().lower()
         target = _safe_int(record.get("target"), 0)
         control_value = record.get("control")
-        control = None if pd.isna(control_value) or control_value == "" else _safe_int(control_value, 0)
+        control = (
+            None
+            if pd.isna(control_value) or control_value == ""
+            else _safe_int(control_value, 0)
+        )
         rows.append(
             OperationRow(
                 gate=gate,
@@ -205,6 +186,34 @@ def load_preset(name: str) -> None:
     st.session_state.workbench_measured_qubits = list(preset.measured_qubits)
     st.session_state.workbench_operations = list(preset.operations)
     st.session_state.workbench_bloch_qubit = 0
+    st.session_state.workbench_source_name = f"{name} preset"
+
+
+def load_qasm_source(source: str, source_name: str) -> None:
+    """Replace the current workbench state from OpenQASM source."""
+    imported_qubits, imported_measured, imported_rows = import_qasm_program(source)
+    st.session_state.workbench_import_source = source
+    st.session_state.workbench_num_qubits = min(imported_qubits, 6)
+    st.session_state.workbench_measured_qubits = [
+        qubit for qubit in imported_measured if qubit < 6
+    ]
+    st.session_state.workbench_operations = sanitize_operation_rows(
+        imported_rows,
+        st.session_state.workbench_num_qubits,
+    )
+    st.session_state.workbench_bloch_qubit = 0
+    st.session_state.workbench_source_name = source_name
+
+
+def format_full_state(result: SimulationResult | DensityMatrixResult) -> str:
+    """Format the full pre-measurement state for display."""
+    array = result.statevector if isinstance(result, SimulationResult) else result.density_matrix
+    return np.array2string(
+        array,
+        precision=6,
+        suppress_small=False,
+        threshold=sys.maxsize,
+    )
 
 
 def run_app() -> None:
@@ -212,32 +221,60 @@ def run_app() -> None:
     inject_styles()
     initialize_state()
 
-    st.markdown(
-        """
-        <section class="quantum-hero">
-          <div class="quantum-kicker">Quantum Workbench</div>
-          <h1 class="quantum-title">Build, perturb, and inspect circuits live.</h1>
-          <p class="quantum-subtitle">
-            This workspace is tuned for real use: edit gates quickly, preview the
-            circuit visually, switch between noiseless and noisy simulation, and
-            inspect counts, basis probabilities, Bloch vectors, and generated QASM
-            without leaving the page.
-          </p>
-        </section>
-        """,
-        unsafe_allow_html=True,
+    st.title("Quantum Simulator")
+    st.caption(
+        "Load a `.qasm` file or build a circuit manually, choose the number of shots, "
+        "optionally apply noise, and inspect the pre-measurement state and counts."
     )
+    st.caption(f"Current source: {st.session_state.workbench_source_name}")
 
     with st.sidebar:
-        st.header("Workbench")
+        st.header("Input")
 
-        preset_choice = st.selectbox("Starter circuit", options=preset_names(), index=1)
+        preset_choice = st.selectbox(
+            "Starter circuit",
+            options=preset_names(),
+            index=1,
+            help="Quick way to load a known-good circuit into the editor.",
+        )
         if st.button("Load preset", use_container_width=True):
             load_preset(preset_choice)
             st.rerun()
-
         st.caption(get_preset(preset_choice).description)
 
+        uploaded_qasm = st.file_uploader(
+            "Upload a QASM file",
+            type=["qasm"],
+            help="Use a local OpenQASM 2.0 file as the circuit source.",
+        )
+        if uploaded_qasm is not None and st.button("Load uploaded file", use_container_width=True):
+            try:
+                load_qasm_source(
+                    uploaded_qasm.getvalue().decode("utf-8"),
+                    uploaded_qasm.name,
+                )
+            except UnicodeDecodeError:
+                st.error("The uploaded file must be UTF-8 text.")
+            except (QASMParseError, ValueError) as exc:
+                st.error(str(exc))
+            else:
+                st.rerun()
+
+        with st.expander("Paste QASM text", expanded=False):
+            import_source = st.text_area(
+                "OpenQASM 2.0 source",
+                value=st.session_state.workbench_import_source,
+                height=220,
+            )
+            if st.button("Load pasted QASM", use_container_width=True):
+                try:
+                    load_qasm_source(import_source, "Pasted QASM")
+                except (QASMParseError, ValueError) as exc:
+                    st.error(str(exc))
+                else:
+                    st.rerun()
+
+        st.header("Run settings")
         num_qubits = st.slider(
             "Qubit count",
             min_value=1,
@@ -261,7 +298,7 @@ def run_app() -> None:
             "Measured qubits",
             options=list(range(num_qubits)),
             default=measured_default or list(range(num_qubits)),
-            help="Counts are sampled only from the qubits selected here.",
+            help="Counts are sampled only from these measured qubits.",
         )
 
         noise_mode = st.selectbox(
@@ -270,7 +307,6 @@ def run_app() -> None:
             format_func=lambda option: option.replace("_", " ").title(),
             index=list(NOISE_OPTIONS).index(st.session_state.workbench_noise_mode),
         )
-
         if noise_mode == "depolarizing":
             noise_strength = st.slider(
                 "Depolarizing p",
@@ -296,32 +332,8 @@ def run_app() -> None:
             "Bloch-sphere qubit",
             options=list(range(num_qubits)),
             index=min(int(st.session_state.workbench_bloch_qubit), num_qubits - 1),
-            help="For multi-qubit circuits this shows the reduced single-qubit state.",
+            help="For multi-qubit states this uses the reduced single-qubit state.",
         )
-
-        with st.expander("Import QASM", expanded=False):
-            import_source = st.text_area(
-                "Replace the editor from OpenQASM 2.0",
-                value=st.session_state.workbench_import_source,
-                height=240,
-            )
-            if st.button("Load QASM into workbench", use_container_width=True):
-                try:
-                    imported_qubits, imported_measured, imported_rows = import_qasm_program(import_source)
-                except (QASMParseError, ValueError) as exc:
-                    st.error(str(exc))
-                else:
-                    st.session_state.workbench_import_source = import_source
-                    st.session_state.workbench_num_qubits = min(imported_qubits, 6)
-                    st.session_state.workbench_measured_qubits = [
-                        qubit for qubit in imported_measured if qubit < 6
-                    ]
-                    st.session_state.workbench_operations = sanitize_operation_rows(
-                        imported_rows,
-                        st.session_state.workbench_num_qubits,
-                    )
-                    st.session_state.workbench_bloch_qubit = 0
-                    st.rerun()
 
         with st.expander("Supported gates", expanded=False):
             st.markdown(
@@ -345,19 +357,17 @@ def run_app() -> None:
 
     if noise_mode != "none" and num_qubits > 4:
         st.warning(
-            "Noisy simulation uses density matrices, so performance drops quickly "
-            "as qubit count grows. Four or fewer qubits keeps the app responsive."
+            "Noisy simulation uses density matrices, so performance drops quickly as "
+            "the qubit count grows. Four or fewer qubits keeps the app responsive."
         )
 
-    left_col, right_col = st.columns([1.2, 1.0], gap="large")
+    left_col, right_col = st.columns([1.15, 1.0], gap="large")
 
     with left_col:
-        st.subheader("Composer")
+        st.subheader("Circuit editor")
         st.caption(
-            "Use the table to edit the gate sequence. The live preview above it "
-            "updates on every change."
+            "Edit the gate sequence below. The preview above it is regenerated from the current table."
         )
-
         fig, _ = plot_circuit_diagram(
             num_qubits=num_qubits,
             measured_qubits=measured_qubits,
@@ -366,7 +376,7 @@ def run_app() -> None:
         st.pyplot(fig, use_container_width=True)
         fig.clear()
 
-        toolbar_cols = st.columns([1, 1, 1])
+        toolbar_cols = st.columns(3)
         if toolbar_cols[0].button("Add step", use_container_width=True):
             st.session_state.workbench_operations.append(blank_operation(num_qubits))
             st.rerun()
@@ -421,26 +431,19 @@ def run_app() -> None:
         )
 
         st.caption(
-            "Parameter columns are gate-specific: "
+            "Gate parameters: "
             + ", ".join(
                 f"`{gate}` uses {parameter_help_text(gate)}"
                 for gate in ["rx", "ry", "rz", "u1", "u2", "u3"]
             )
         )
-
-        st.markdown(
-            """
-            <div class="quantum-note">
-            Terminal measurements only: counts are sampled from the measured qubits
-            selected in the sidebar, after all gates finish running.
-            </div>
-            """,
-            unsafe_allow_html=True,
+        st.info(
+            "Measurements happen at the end of the circuit. Counts are sampled from the final state "
+            "for the measured qubits you selected."
         )
 
     with right_col:
-        st.subheader("Simulation")
-
+        st.subheader("Simulation output")
         try:
             snapshot = simulate_operation_rows(
                 num_qubits=num_qubits,
@@ -457,25 +460,21 @@ def run_app() -> None:
 
         metric_cols = st.columns(4)
         metric_cols[0].metric("Qubits", snapshot.circuit.num_qubits)
-        metric_cols[1].metric("Active gates", len(snapshot.circuit.gates))
+        metric_cols[1].metric("Gates", len(snapshot.circuit.gates))
         metric_cols[2].metric("Mode", snapshot.mode_label)
         metric_cols[3].metric("Purity", f"{snapshot.purity:.3f}")
 
-        overview_tab, state_tab, qasm_tab = st.tabs(["Overview", "State", "QASM"])
+        plots_tab, state_tab, qasm_tab = st.tabs(["Plots", "State & counts", "QASM"])
 
-        with overview_tab:
+        with plots_tab:
             chart_cols = st.columns(2, gap="large")
-
             with chart_cols[0]:
                 if snapshot.counts:
                     fig, _ = plot_counts(snapshot.counts, title="Measurement Counts")
                     st.pyplot(fig, use_container_width=True)
                     fig.clear()
                 else:
-                    st.info(
-                        "No qubits are currently marked for measurement. "
-                        "Counts will appear once you select measured qubits in the sidebar."
-                    )
+                    st.info("Counts appear after you select one or more measured qubits.")
 
             with chart_cols[1]:
                 min_probability = 0.0 if num_qubits <= 4 else 0.01
@@ -498,13 +497,11 @@ def run_app() -> None:
         with state_tab:
             if isinstance(snapshot.result, SimulationResult):
                 st.caption(
-                    "Most likely basis states from the exact statevector. "
-                    "Amplitudes are shown as complex numbers."
+                    "The exact pre-measurement statevector is shown below. The table lists the most likely basis states first."
                 )
             else:
                 st.caption(
-                    "Most likely basis states from the density matrix. "
-                    "Diagonal entries are shown as complex numbers."
+                    "Noise switches the simulator to a density matrix. The table shows the most likely diagonal outcomes first."
                 )
 
             st.dataframe(
@@ -512,8 +509,15 @@ def run_app() -> None:
                 use_container_width=True,
                 hide_index=True,
             )
+
+            with st.expander("Full pre-measurement state", expanded=False):
+                st.code(format_full_state(snapshot.result), language="python")
+
             if snapshot.counts:
+                st.caption("Counts for the requested number of shots")
                 st.code(str(snapshot.counts), language="python")
+            else:
+                st.info("No counts are available until at least one qubit is measured.")
 
         with qasm_tab:
             st.code(snapshot.qasm, language="qasm")

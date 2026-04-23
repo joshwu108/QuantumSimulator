@@ -457,8 +457,8 @@ def plot_circuit_diagram(
     fig_width = max(9.0, 2.0 + total_columns * 1.45)
     fig_height = max(3.6, 1.4 + num_qubits * 1.1)
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-    fig.patch.set_facecolor("#081017")
-    ax.set_facecolor("#081017")
+    fig.patch.set_facecolor("#0c141b")
+    ax.set_facecolor("#0c141b")
 
     y_positions = {qubit: num_qubits - 1 - qubit for qubit in range(num_qubits)}
     for qubit in range(num_qubits):
@@ -466,7 +466,7 @@ def plot_circuit_diagram(
         ax.plot(
             [0.3, total_columns + 0.8],
             [y, y],
-            color="#456172",
+            color="#506170",
             linewidth=1.6,
             solid_capstyle="round",
             zorder=1,
@@ -475,7 +475,7 @@ def plot_circuit_diagram(
             0.08,
             y,
             f"q{qubit}",
-            color="#D7E3EC",
+            color="#D4DEE6",
             va="center",
             ha="left",
             fontsize=12,
@@ -487,30 +487,30 @@ def plot_circuit_diagram(
             (total_columns + 1.0) / 2,
             (num_qubits - 1) / 2 if num_qubits > 1 else 0.0,
             "Add a gate to start exploring",
-            color="#A1B7C8",
+            color="#AABBC8",
             ha="center",
             va="center",
             fontsize=14,
         )
 
     color_map = {
-        "id": "#8A9BA8",
-        "h": "#68D0C6",
-        "x": "#F4A261",
-        "y": "#F4A261",
-        "z": "#F4A261",
-        "s": "#9D7FEA",
-        "sdg": "#9D7FEA",
-        "t": "#BA68C8",
-        "tdg": "#BA68C8",
-        "rx": "#7FD29C",
-        "ry": "#7FD29C",
-        "rz": "#7FD29C",
-        "u1": "#94D2BD",
-        "u2": "#94D2BD",
-        "u3": "#94D2BD",
-        "cx": "#FF6B6B",
-        "cz": "#FF6B6B",
+        "id": "#7E8B95",
+        "h": "#74B9B1",
+        "x": "#C9986B",
+        "y": "#C9986B",
+        "z": "#C9986B",
+        "s": "#8B7FB2",
+        "sdg": "#8B7FB2",
+        "t": "#9A7AA6",
+        "tdg": "#9A7AA6",
+        "rx": "#7FA88F",
+        "ry": "#7FA88F",
+        "rz": "#7FA88F",
+        "u1": "#7C9FA0",
+        "u2": "#7C9FA0",
+        "u3": "#7C9FA0",
+        "cx": "#B97A7A",
+        "cz": "#B97A7A",
     }
 
     for step, row in enumerate(active_rows, start=1):
@@ -520,7 +520,7 @@ def plot_circuit_diagram(
             ax.plot(
                 [step, step],
                 [control_y, target_y],
-                color="#E6EEF5",
+                color="#DCE5EC",
                 linewidth=1.6,
                 zorder=2,
             )
@@ -528,7 +528,7 @@ def plot_circuit_diagram(
                 [step],
                 [control_y],
                 s=90,
-                color="#E6EEF5",
+                color="#DCE5EC",
                 zorder=4,
             )
             _draw_gate_box(
@@ -562,12 +562,12 @@ def plot_circuit_diagram(
                 fill="#D1B06B",
             )
 
-    ax.set_title(title, color="#F7FBFF", fontsize=18, fontweight="bold", pad=16)
+    ax.set_title(title, color="#F2F6FA", fontsize=17, fontweight="bold", pad=16)
     ax.text(
         0.3,
         -0.72,
         "Little-endian ordering: q0 is the least-significant qubit in state labels.",
-        color="#8AA0B2",
+        color="#91A2AF",
         fontsize=10,
         ha="left",
     )
@@ -611,7 +611,7 @@ def _draw_gate_box(
         0.56,
         boxstyle="round,pad=0.02,rounding_size=0.08",
         linewidth=1.3,
-        edgecolor="#E6EEF5",
+        edgecolor="#DCE5EC",
         facecolor=fill,
         zorder=3,
     )
@@ -624,7 +624,7 @@ def _draw_gate_box(
         va="center",
         fontsize=10,
         fontweight="bold",
-        color="#081017",
+        color="#0b131a",
         zorder=4,
     )
 

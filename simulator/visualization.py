@@ -388,6 +388,9 @@ def _draw_bloch_sphere(ax: Axes) -> None:
 def _require_matplotlib():
     """Import Matplotlib only when a plot is actually requested."""
     try:
+        import matplotlib
+
+        matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError as exc:
         raise ImportError(

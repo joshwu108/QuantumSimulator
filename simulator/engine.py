@@ -1,18 +1,4 @@
 """Statevector and density matrix quantum circuit simulators.
-
-Qubit ordering convention (little-endian / Qiskit-compatible):
-  - Statevector index i encodes qubit k's state as bit k of i:
-      state_of_qubit_k = (i >> k) & 1
-  - Qubit 0 is the least-significant bit (LSB / rightmost).
-  - |0...0> (all qubits ground) maps to index 0.
-  - |1, 0, ..., 0> (only qubit 0 excited) maps to index 1.
-
-  Example for 2 qubits:
-    index 0 → |q1=0, q0=0> = |00>
-    index 1 → |q1=0, q0=1> = |10>   (qubit 0 excited)
-    index 2 → |q1=1, q0=0> = |01>   (qubit 1 excited)
-    index 3 → |q1=1, q0=1> = |11>
-
 Efficiency design:
   - Gates are applied without ever constructing a 2^n × 2^n unitary matrix.
   - Single-qubit gates: O(2^n) via tensor contraction on the reshaped statevector.
